@@ -30,6 +30,7 @@ from typing import Dict, List, Optional, Tuple
 from . import analysis as an
 from . import ranges as rg
 from . import sequence_form as sf
+from .best_response import best_response_value
 from .game import Game, GameConfig, AKQJT9_RANKS
 
 
@@ -732,6 +733,106 @@ def sizing_abstraction_curve(
             rows.append((sizes, v, _capture(v, v_check, v_full)))
         chosen[name] = rows
     return AbstractionCurve(grid=grid, v_check=v_check, v_full=v_full, chosen=chosen)
+
+
+# ---------------------------------------------------------------------------
+# Two-sided abstraction: exploitability of a translated bucket strategy
+# ---------------------------------------------------------------------------
+
+
+def translate(b: float, menu: List[float], rule: str = "nearest") -> Dict[float, float]:
+    """Map an off-menu bet fraction ``b`` to a distribution over menu sizes.
+
+    ``nearest``: round to the closest menu size.
+    ``pseudoharmonic``: the Ganzfried-Sandholm randomized mapping, which makes a
+    rational bettor closer to indifferent about choosing an intermediate size.
+    """
+    m = sorted(menu)
+    if b <= m[0]:
+        return {m[0]: 1.0}
+    if b >= m[-1]:
+        return {m[-1]: 1.0}
+    # bracketing menu sizes A < b < B
+    A = max(s for s in m if s <= b)
+    B = min(s for s in m if s >= b)
+    if A == B:
+        return {A: 1.0}
+    if rule == "nearest":
+        return {A: 1.0} if (b - A) <= (B - b) else {B: 1.0}
+    if rule == "pseudoharmonic":
+        wA = ((B - b) * (1.0 + A)) / ((B - A) * (1.0 + b))
+        return {A: wA, B: 1.0 - wA}
+    raise ValueError(f"unknown translation rule {rule!r}")
+
+
+def _defender_call_freqs(
+    menu: List[float], bettor_w, defender_w, ranks, ante, stack,
+) -> Dict[Tuple[str, float], float]:
+    """GTO call frequency c*(hand, size) for the passive defender on menu ``menu``."""
+    cfg = GameConfig(ranks=ranks, suits=2, ante=ante, num_rounds=1,
+                     bet_mode="no-limit", stack=stack,
+                     bet_fractions=tuple(sorted(menu)), raise_fractions=(),
+                     allow_allin=False, max_raises=1, aggressors=(0,),
+                     deal_weights=(bettor_w, defender_w))
+    sol = sf.solve(Game(cfg))
+    out: Dict[Tuple[str, float], float] = {}
+    for h in ranks:
+        for s in menu:
+            key = f"P1|{h}|-|b{s:g}"
+            out[(h, s)] = sol.strategy.get(key, {}).get("c", 0.0)
+    return out
+
+
+@dataclass
+class AbstractionExploit:
+    menu: List[float]
+    rule: str
+    value_full_gto: float     # bettor value vs a perfectly-defending opponent
+    value_exploited: float    # bettor best-response value vs the bucket defender
+    exploitability: float     # >= 0; extra chips the gap concedes
+
+
+def abstraction_exploitability(
+    menu: List[float], bettor_w, defender_w, grid: List[float],
+    rule: str = "nearest", ranks: Tuple[str, ...] = AKQJT9_RANKS,
+    ante: int = 1, stack: float = 50.0,
+) -> AbstractionExploit:
+    """How exploitable is a defender that only prepared responses for ``menu``?
+
+    The defender computes its GTO defence on ``menu``, then faces a best-responder
+    that may bet any size on the fine ``grid``; off-menu bets are handled by the
+    translation ``rule``.  Exploitability is the extra value the best-responder
+    extracts versus a defender that defends the full grid perfectly.
+    """
+    full_grid = sorted(set(grid) | set(menu))
+    cfg_full = GameConfig(ranks=ranks, suits=2, ante=ante, num_rounds=1,
+                          bet_mode="no-limit", stack=stack,
+                          bet_fractions=tuple(full_grid), raise_fractions=(),
+                          allow_allin=False, max_raises=1, aggressors=(0,),
+                          deal_weights=(bettor_w, defender_w))
+    game = Game(cfg_full)
+    v_full = sf.solve(game).value
+
+    cf = _defender_call_freqs(menu, bettor_w, defender_w, ranks, ante, stack)
+
+    # build the bucket defender's behavioural strategy on the full-grid tree
+    strat: Dict[str, Dict[str, float]] = {}
+    for infoset in game.player_infosets[1]:
+        _p, h, _comm, hist = an.parse_infoset(infoset)
+        acts = game.infoset_actions[infoset]
+        if hist.startswith("b") and "c" in acts and "f" in acts:
+            b = float(hist[1:])
+            tw = translate(b, menu, rule)
+            cp = sum(w * cf[(h, s)] for s, w in tw.items())
+            strat[infoset] = {"c": cp, "f": 1.0 - cp}
+        else:
+            strat[infoset] = {a: 1.0 / len(acts) for a in acts}
+
+    v_exploited = best_response_value(game, strat, br_player=0)
+    return AbstractionExploit(
+        menu=sorted(menu), rule=rule, value_full_gto=v_full,
+        value_exploited=v_exploited, exploitability=v_exploited - v_full,
+    )
 
 
 # ---------------------------------------------------------------------------

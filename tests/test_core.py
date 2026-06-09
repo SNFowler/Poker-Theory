@@ -267,6 +267,43 @@ def test_passive_player_cannot_bet():
             assert all(a in ("x", "c", "f") for a in acts), (infoset, acts)
 
 
+def test_abstraction_exploitability_sanity_and_translation():
+    """menu==grid is unexploitable; pseudo-harmonic <= nearest; cap helps."""
+    from poker_theory import studies as st
+    from poker_theory import ranges as rg
+    grid = [round(0.2 * (1.35 ** i), 3) for i in range(12)]   # ~0.2 .. 5.6
+    bettor, defender = rg.polarized_range(6), rg.uniform_range(6)
+
+    # identity translation => an equilibrium defender => unexploitable
+    e = st.abstraction_exploitability(grid, bettor, defender, grid, "nearest")
+    assert abs(e.exploitability) < 1e-9
+    assert e.exploitability >= -1e-9
+
+    cap = grid[-1]
+    menu = [grid[1], grid[5], cap]
+    near = st.abstraction_exploitability(menu, bettor, defender, grid, "nearest")
+    pseu = st.abstraction_exploitability(menu, bettor, defender, grid, "pseudoharmonic")
+    assert near.exploitability >= -1e-9 and pseu.exploitability >= -1e-9
+    assert pseu.exploitability <= near.exploitability + 1e-9   # pseudo no worse
+
+    # dropping the top cap is strictly worse (extrapolation pathology)
+    no_cap = st.abstraction_exploitability([grid[1], grid[5]], bettor, defender,
+                                           grid, "nearest")
+    assert no_cap.exploitability >= near.exploitability - 1e-9
+
+
+def test_translate_rules():
+    """Translation maps within-bracket; endpoints clamp; weights are a distribution."""
+    from poker_theory import studies as st
+    menu = [0.33, 1.0, 3.0]
+    assert st.translate(0.1, menu, "nearest") == {0.33: 1.0}      # below -> clamp
+    assert st.translate(9.0, menu, "nearest") == {3.0: 1.0}       # above -> clamp
+    assert st.translate(0.4, menu, "nearest") == {0.33: 1.0}      # nearest below
+    ph = st.translate(0.6, menu, "pseudoharmonic")
+    assert set(ph) == {0.33, 1.0} and abs(sum(ph.values()) - 1.0) < 1e-12
+    assert all(0.0 <= w <= 1.0 for w in ph.values())
+
+
 def test_zero_sum_symmetry_of_value():
     """Solving from both sides agrees (enforced) and value is finite."""
     sol = sf.solve(leduc_game())

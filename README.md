@@ -139,6 +139,35 @@ no abstraction-translation). The fully rigorous metric — both players abstract
 exploitability measured in the fine-grid game with a translation rule for
 off-menu sizes — is the natural next step.
 
+## The rigorous version: exploitability, and the offense/defense asymmetry
+
+The capture-% study above is the *offense* abstraction cost (you only bet a few
+sizes; the opponent best-responds to your actual bets). The harder, solver-relevant
+question is the *defense* cost: you prepared GTO responses only for a menu, the
+opponent may bet anything on a fine grid, and off-menu bets are mapped back by a
+**translation rule** (`studies.abstraction_exploitability`, reusing the exact
+best-response routine; `scripts/abstraction_exploitability.py`). Three findings:
+
+- **The extrapolation cliff.** A menu without its largest size is catastrophic:
+  the opponent shoves above your top size and nearest-translation defends it as a
+  *pot* bet. Including the all-in cap drops exploitability ~36% immediately — you
+  must have your biggest size in the menu.
+- **Translation matters a lot.** With the cap included the residual leak is pure
+  *interpolation*, and the Ganzfried–Sandholm **pseudo-harmonic** mapping beats
+  nearest-neighbour dramatically — **13× lower exploitability at k=2** (0.71 →
+  0.053 chips). Nearest-neighbour bucketing is badly exploitable; pseudo-harmonic
+  with `{small, all-in}` is already nearly unexploitable.
+- **The asymmetry (headline).** The *same* menu that recovers ~98% of your own EV
+  on offense at k=2 leaks for many more sizes on defense under nearest
+  translation, because the opponent actively probes the gaps between your sizes.
+  Two sizes suffice to *bet* well; defending well needs the all-in cap **and** a
+  good translation rule — after which two sizes can again be near-unexploitable.
+  → `figures/fig9_abstraction_exploitability.png`
+
+So the earlier `{0.33, 1.0}` "robustness" was an offense-only statement: under
+exploitability it does **not** survive with nearest translation, but it largely
+recovers once you add the cap and translate pseudo-harmonically.
+
 ## TL;DR findings
 
 Using the AKQJT9 game (see below), with the bettor's range mean-strength held
@@ -361,6 +390,7 @@ python scripts/run_studies.py --quick   # coarser grids        (~10s)
 python scripts/clairvoyance_study.py    # the penalty-for-a-condensed-range result
 python scripts/question_value_study.py  # the corrected measure: question value vs entropy
 python scripts/sizing_abstraction.py    # how few bet sizes recover the GTO continuum
+python scripts/abstraction_exploitability.py  # exploitability + translation rules
 ```
 
 Outputs (committed under `figures/`):
@@ -375,6 +405,7 @@ Outputs (committed under `figures/`):
 | `fig6_clairvoyance.png` | **the penalty for a condensed range**: `s/(1+s)` + penalty surface |
 | `fig7_question_value.png` | **the corrected measure**: question-value vs range entropy |
 | `fig8_sizing_abstraction.png` | **bet-sizing abstraction**: how few sizes recover the continuum |
+| `fig9_abstraction_exploitability.png` | **exploitability** of a bucket menu; translation; offense/defense asymmetry |
 
 ---
 
