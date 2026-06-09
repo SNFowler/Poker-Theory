@@ -220,6 +220,21 @@ def test_question_value_voi_nonnegative():
         assert qp.voi >= -1e-9
 
 
+def test_bluffcatcher_cannot_escape_rent_with_raises():
+    """Given the raise option, a pure bluff-catcher still pays exactly s/(1+s).
+
+    The richer answer alphabet (fold/call/raise) does not help: the extra action
+    is dominated, the answer partition stays trivial, VoI stays zero.
+    """
+    from poker_theory import studies as st
+    for s in (0.5, 1.0, 2.0):
+        qp = st.question_value_point((0, 0, 1, 1, 0, 0), s, label="bc",
+                                     raise_fractions=(1.0,), max_raises=2)
+        assert qp.penalty == pytest.approx(s / (1 + s), abs=1e-6)
+        assert qp.voi == pytest.approx(0.0, abs=1e-6)
+        assert qp.partition_entropy == pytest.approx(0.0, abs=1e-6)
+
+
 def test_zero_sum_symmetry_of_value():
     """Solving from both sides agrees (enforced) and value is finite."""
     sol = sf.solve(leduc_game())

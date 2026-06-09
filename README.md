@@ -85,6 +85,30 @@ optional (a bettor never poses a value-losing one — which is also why a polar
 *defender* simply never gets bet at: the question is worthless against it).
 → `figures/fig7_question_value.png`, `scripts/question_value_study.py`
 
+### Scope and limits (a complexity stress test)
+
+Is any of this *new* poker math? Honestly, no — and the stress test
+(`scripts/complexity_stress.py`) is included to say so precisely:
+
+- The **textbook content reproduces exactly**: `s/(1+s)`, MDF `1/(1+s)`,
+  bluff-to-value ratios, polar-beats-condensed (Chen & Ankenman, Janda, Tipton).
+  The value of this repo is an exact, instrumented re-derivation, not a discovery.
+- The **VoI / answer-partition framing is a reframing** (decision-theoretic value
+  of information, Howard 1966), not a theorem. Its one durable, exact statement
+  is *VoI = 0 characterizes a pure bluff-catcher* — a restatement of indifference.
+- **In domain it is robust:** enrich the responder's answer alphabet by allowing
+  it to *raise* (fold/call/raise) and the picture only sharpens — a pure
+  bluff-catcher pays exactly `s/(1+s)` *even when handed the raise option*, because
+  the extra action is dominated and the answer partition stays trivial (locked by
+  a test). The predictor holds at corr ≈ 0.99.
+- **Out of domain it breaks:** against a *strong, counter-attacking* defender (one
+  that out-holds a thin-value bettor), the "penalty" goes negative and the
+  composite `rent·indifferent_mass − VoI` fails (corr ≈ 0.55). Diagnosis:
+  `indifferent_mass` conflates indifference-at-the-bottom (a worthless
+  bluff-catcher paying rent) with indifference-at-the-top (a nut hand choosing
+  between call and raise, both winning). The predictor is a bluff-catcher-regime
+  artifact, as flagged when it was introduced.
+
 ## TL;DR findings
 
 Using the AKQJT9 game (see below), with the bettor's range mean-strength held

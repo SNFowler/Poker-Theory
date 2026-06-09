@@ -527,19 +527,24 @@ def question_value_point(
     bettor_weights: Optional[Tuple[float, ...]] = None,
     ranks: Tuple[str, ...] = AKQJT9_RANKS, ante: int = 1, stack: float = 100.0,
     label: str = "",
+    raise_fractions: Tuple[float, ...] = (), max_raises: int = 1,
+    num_rounds: int = 1,
 ) -> QuestionPoint:
-    """Solve one single-round game and measure the question the bet poses.
+    """Solve one game and measure the question the bet poses.
 
     Default bettor is pure nuts-or-air (mass on the strongest and weakest rank).
+    ``raise_fractions``/``max_raises`` enrich the responder's answer alphabet
+    (e.g. allowing a raise -> fold/call/raise); ``num_rounds`` adds streets.
     """
     n = len(ranks)
     if bettor_weights is None:
         bw = [0.0] * n
         bw[0] = bw[-1] = 1.0
         bettor_weights = tuple(bw)
-    cfg = GameConfig(ranks=ranks, suits=2, ante=ante, num_rounds=1,
+    cfg = GameConfig(ranks=ranks, suits=2, ante=ante, num_rounds=num_rounds,
                      bet_mode="no-limit", stack=stack, bet_fractions=(s,),
-                     raise_fractions=(), allow_allin=False, max_raises=1,
+                     raise_fractions=raise_fractions, allow_allin=False,
+                     max_raises=max_raises,
                      deal_weights=(bettor_weights, tuple(defender_weights)))
     game = Game(cfg)
     sol = sf.solve(game)
