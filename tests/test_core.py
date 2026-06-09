@@ -139,6 +139,33 @@ def test_ev_decomposition_is_exact():
         assert r.v_check + r.v_betfold + r.v_betcall == pytest.approx(r.ev_total, abs=1e-9)
 
 
+def test_multiround_lp_unexploitable():
+    """The N-round generalization solves exactly (3-round, small config)."""
+    cfg = GameConfig(ranks=LEDUC_RANKS, suits=2, ante=1, num_rounds=3,
+                     bet_mode="fixed-limit", fixed_bets=(2, 4, 4), max_raises=1)
+    g = Game(cfg)
+    sol = sf.solve(g)
+    _, expl = br.exploitability(g, sol.strategy)
+    assert expl < 1e-9
+
+
+def test_multiboard_showdown_ranking():
+    """Pair (private matches any board card) beats non-pair; higher rank wins."""
+    g = Game(GameConfig(ranks=AKQJT9_RANKS, num_rounds=3, bet_mode="no-limit"))
+    c = (2.0, 2.0)  # win -> +2, lose -> -2, split -> 0
+    assert g._showdown_payoff("K", "A", ("K", "9"), c) == 2.0   # P0 pairs K, beats A-high
+    assert g._showdown_payoff("K", "A", ("9", "T"), c) == -2.0  # both unpaired, A > K
+    assert g._showdown_payoff("K", "A", ("K", "A"), c) == -2.0  # A-pair beats K-pair
+    assert g._showdown_payoff("Q", "Q", ("9", "T"), c) == 0.0   # tie -> split
+
+
+def test_leduc_is_two_round_special_case():
+    """The refactor preserves the classic 2-round Leduc value exactly."""
+    cfg = GameConfig(ranks=LEDUC_RANKS, suits=2, ante=1, num_rounds=2,
+                     bet_mode="fixed-limit", fixed_bets=(2, 4), max_raises=2)
+    assert sf.solve(Game(cfg)).value == pytest.approx(-0.0856064, abs=1e-5)
+
+
 def test_zero_sum_symmetry_of_value():
     """Solving from both sides agrees (enforced) and value is finite."""
     sol = sf.solve(leduc_game())

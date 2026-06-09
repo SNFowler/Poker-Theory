@@ -81,8 +81,32 @@ exactly via card-removal probabilities. This is a *lossless* abstraction here
 because payoffs and card-removal probabilities depend only on ranks — it keeps
 the game small enough for an exact LP while remaining the true game.
 
-A **single-round** mode (`num_rounds=1`: deal, one betting round, showdown on
-private ranks, no community card) gives the simplest spot for the sizing study.
+### Number of streets (`num_rounds`)
+
+`num_rounds` is configurable. `num_rounds` rounds reveal `num_rounds-1` community
+cards (one between each pair of rounds) and the showdown uses the whole board:
+
+- `1` — single-round (deal, one betting round, showdown on private ranks) — the
+  simplest spot for the sizing study;
+- `2` — classic Leduc (validated to the published value);
+- `3+` — **multi-street depth**, needed for range-leverage to compound (so the
+  "cap them now, barrel later" benefit can actually materialize — see the
+  decomposition finding above).
+
+**Multi-board hand ranking** (a clean generalization of Leduc's rule): a hand is
+a *pair* if its private rank appears anywhere on the board; a pair beats a
+non-pair, and among equal pair-status the higher private rank wins (equal ranks
+split). The classic single-card Leduc rule is the `num_rounds=2` special case.
+
+**Computational note.** The fully-expanded tree grows multiplicatively per street,
+so the exact LP is the right tool only for small configs (it solves a 3-round,
+3-rank, single-raise game in ~0.1 s). For deeper/wider multi-street games CFR+ is
+the intended solver — it agrees with the LP value where both run (e.g. 3-round
+fixed-limit, `|LP − CFR| ≈ 4e-4`). The next scaling step (not yet implemented) is
+a vectorized / public-tree CFR that carries reach vectors over private ranks and
+computes showdown counterfactual values with an `O(n log n)` sort instead of
+enumerating every private-card pair — that makes the number of ranks nearly free
+and leaves street depth as the only real cost.
 
 ### Betting model (the lever)
 

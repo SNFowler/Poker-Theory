@@ -15,10 +15,14 @@ Key design goals
   it.  We support both classic *fixed-limit* Leduc (for sanity-checking against
   known results) and *no-limit* multi-size betting (pot fractions + all-in).
 * **Information sets keyed by observables.**  A player's information set is the
-  pair *(own private rank, public state)* where the public state is the
-  community rank (once revealed) plus the full public betting history.  Because
-  payoffs and card-removal probabilities depend only on ranks, keying infosets
-  by rank is a *lossless* abstraction.
+  pair *(own private rank, public state)* where the public state is the board
+  (community cards revealed so far) plus the full public betting history.
+  Because payoffs and card-removal probabilities depend only on ranks, keying
+  infosets by rank is a *lossless* abstraction.
+* **Configurable number of streets.**  ``num_rounds`` rounds means ``num_rounds-1``
+  community cards revealed one at a time between rounds; the showdown uses the
+  full board.  ``num_rounds=2`` is classic Leduc; larger values give the
+  multi-street depth needed for range-leverage effects to compound.
 
 The resulting :class:`Game` object is consumed by the sequence-form LP solver,
 the CFR solver, the best-response routine, and the information-measure analysis.
@@ -75,9 +79,10 @@ class GameConfig:
     ante: int = 1
     bet_mode: str = "no-limit"
 
-    # Number of betting rounds.  2 = full Leduc (private + community card).
-    # 1 = single-round game (deal, one betting round, showdown on private ranks,
-    # no community card) -- the simplest case for the bet-sizing study.
+    # Number of betting rounds.  ``num_rounds`` rounds reveal ``num_rounds-1``
+    # community cards (one between each pair of rounds); the showdown uses the
+    # whole board.  1 = single-round (showdown on private ranks, no board);
+    # 2 = classic Leduc; 3+ = multi-street depth for range-leverage studies.
     num_rounds: int = 2
 
     # fixed-limit parameters
@@ -241,38 +246,41 @@ class Game:
                 out.append((a, b, pa * pb))
         return out
 
-    def _community_branches(self, a: str, b: str) -> List[Tuple[str, float]]:
-        """Enumerate community ranks given the two private ranks already dealt."""
+    def _community_branches(
+        self, a: str, b: str, board: Tuple[str, ...]
+    ) -> List[Tuple[str, float]]:
+        """Enumerate the next community rank given the cards already removed."""
         cfg = self.config
         counts = {r: cfg.suits for r in cfg.ranks}
         counts[a] -= 1
         counts[b] -= 1
+        for c in board:
+            counts[c] -= 1
         remaining = sum(counts.values())
+        if remaining <= 0:
+            raise ValueError("deck exhausted: too many rounds for this deck size")
         return [(c, counts[c] / remaining) for c in cfg.ranks if counts[c] > 0]
 
     # -- showdown ----------------------------------------------------------
 
     def _showdown_payoff(
-        self, a: str, b: str, community: Optional[str], committed: Tuple[float, float]
+        self, a: str, b: str, board: Tuple[str, ...], committed: Tuple[float, float]
     ) -> float:
-        """Net payoff to player 0 at showdown given both ranks and community.
+        """Net payoff to player 0 at showdown given both private ranks and board.
 
-        ``community is None`` (single-round game) compares private ranks only.
+        Hand ranking (a clean multi-board generalization of Leduc): a hand is a
+        *pair* if its private rank appears anywhere on the board.  A pair beats a
+        non-pair; among hands of the same pair-status the higher private rank
+        wins; equal ranks split.
         """
         cfg = self.config
-        p0_pair = community is not None and a == community
-        p1_pair = community is not None and b == community
-        if p0_pair and not p1_pair:
-            result = 1
-        elif p1_pair and not p0_pair:
-            result = -1
-        elif p0_pair and p1_pair:
-            # both paired the (single remaining) community rank is impossible
-            # because only one copy of `community` remains; kept for safety.
-            result = 0
-        else:
-            sa, sb = cfg.rank_strength(a), cfg.rank_strength(b)
-            result = (sa > sb) - (sa < sb)
+
+        def key(p: str) -> Tuple[int, int]:
+            paired = 1 if p in board else 0
+            return (paired, cfg.rank_strength(p))
+
+        ka, kb = key(a), key(b)
+        result = (ka > kb) - (ka < kb)
         c0, c1 = committed
         if result > 0:
             return c1            # win: gain opponent's contribution
@@ -332,7 +340,7 @@ class Game:
         self,
         a: str,
         b: str,
-        community: Optional[str],
+        board: Tuple[str, ...],
         committed: Tuple[float, float],
         to_act: int,
         round_idx: int,
@@ -344,8 +352,8 @@ class Game:
         """Build the subtree for one betting decision.  Returns node index.
 
         ``close_round`` is invoked with ``(committed, history)`` when the round
-        ends without a fold; it constructs the next stage (community reveal +
-        round 2, or showdown) and returns its node index.
+        ends without a fold; it constructs the next stage (next community reveal
+        and round, or the showdown) and returns its node index.
         """
         cfg = self.config
         opp = 1 - to_act
@@ -359,7 +367,7 @@ class Game:
                 child = close_round(committed, history + ("x",))
             else:
                 child = self._build_betting(
-                    a, b, community, committed, opp, round_idx, num_raises,
+                    a, b, board, committed, opp, round_idx, num_raises,
                     opp_checked=True, history=history + ("x",),
                     close_round=close_round,
                 )
@@ -372,7 +380,7 @@ class Game:
                 ):
                     new_committed = _with(committed, to_act, target)
                     child = self._build_betting(
-                        a, b, community, new_committed, opp, round_idx,
+                        a, b, board, new_committed, opp, round_idx,
                         num_raises + 1, opp_checked=False,
                         history=history + (label,), close_round=close_round,
                     )
@@ -397,7 +405,7 @@ class Game:
                 ):
                     new_committed = _with(committed, to_act, target)
                     child = self._build_betting(
-                        a, b, community, new_committed, opp, round_idx,
+                        a, b, board, new_committed, opp, round_idx,
                         num_raises + 1, opp_checked=False,
                         history=history + (label,), close_round=close_round,
                     )
@@ -407,7 +415,7 @@ class Game:
         node = PlayerNode(player=to_act)
         idx = self._add(node)
         # Infoset key: acting player's private rank + public state.
-        infoset = self._infoset_key(to_act, a, b, community, history)
+        infoset = self._infoset_key(to_act, a, b, board, history)
         node.infoset = infoset
         node.actions = action_specs
         self._register_player_node(to_act, infoset, idx, labels)
@@ -418,15 +426,46 @@ class Game:
         player: int,
         a: str,
         b: str,
-        community: Optional[str],
+        board: Tuple[str, ...],
         history: Tuple[str, ...],
     ) -> str:
         own = a if player == 0 else b
-        comm = community if community is not None else "-"
+        comm = "".join(board) if board else "-"
         hist = "".join(history)
         return f"P{player}|{own}|{comm}|{hist}"
 
     # -- stage assembly ----------------------------------------------------
+
+    def _advance_street(
+        self, a: str, b: str, board: Tuple[str, ...], round_idx: int,
+        committed: Tuple[float, float], history: Tuple[str, ...],
+    ) -> int:
+        """Called when round ``round_idx`` (0-based) has closed without a fold.
+
+        If it was the last round, build the showdown terminal; otherwise reveal
+        the next community card and recurse into the following round.
+        """
+        cfg = self.config
+        if round_idx >= cfg.num_rounds - 1:
+            return self._add(TerminalNode(
+                payoff=self._showdown_payoff(a, b, board, committed)))
+
+        comm_chance = ChanceNode()
+        comm_idx = self._add(comm_chance)
+        next_round = round_idx + 1
+        for c, cprob in self._community_branches(a, b, board):
+            new_board = board + (c,)
+
+            def closer(committed2, history2, nb=new_board, nr=next_round):
+                return self._advance_street(a, b, nb, nr, committed2, history2)
+
+            r_root = self._build_betting(
+                a, b, new_board, committed, to_act=0, round_idx=next_round,
+                num_raises=0, opp_checked=False, history=history + ("/",),
+                close_round=closer,
+            )
+            comm_chance.branches.append((c, cprob, r_root))
+        return comm_idx
 
     def _build(self) -> None:
         cfg = self.config
@@ -437,38 +476,14 @@ class Game:
 
         for a, b, prob in self._deal_branches():
 
-            # Stage transition after round 1 closes.
-            def after_round1(committed, history, a=a, b=b):
-                if cfg.num_rounds == 1:
-                    # Single-round game: showdown immediately on private ranks.
-                    term = TerminalNode(
-                        payoff=self._showdown_payoff(a, b, None, committed)
-                    )
-                    return self._add(term)
-                # Otherwise: reveal community card, then run round 2.
-                comm_chance = ChanceNode()
-                comm_idx = self._add(comm_chance)
-                for c, cprob in self._community_branches(a, b):
-                    def close_round2(committed2, history2, a=a, b=b, c=c):
-                        term = TerminalNode(
-                            payoff=self._showdown_payoff(a, b, c, committed2)
-                        )
-                        return self._add(term)
-
-                    r2_history = history + ("/",)
-                    r2_root = self._build_betting(
-                        a, b, c, committed, to_act=0, round_idx=1,
-                        num_raises=0, opp_checked=False, history=r2_history,
-                        close_round=close_round2,
-                    )
-                    comm_chance.branches.append((c, cprob, r2_root))
-                return comm_idx
+            def close_round1(committed, history, a=a, b=b):
+                return self._advance_street(a, b, (), 0, committed, history)
 
             committed0 = (ante, ante)
             r1_root = self._build_betting(
-                a, b, None, committed0, to_act=0, round_idx=0,
+                a, b, (), committed0, to_act=0, round_idx=0,
                 num_raises=0, opp_checked=False, history=(),
-                close_round=after_round1,
+                close_round=close_round1,
             )
             deal.branches.append((f"{a}{b}", prob, r1_root))
 
