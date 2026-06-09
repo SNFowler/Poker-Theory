@@ -36,19 +36,31 @@ fixed so we isolate *shape*:
    against a best responder. Restricting the *deal* to a condensed range costs
    **0.42**; to a polarized range *gains* **0.26**.
 
-4. **The information-optimal size does NOT equal the EV-optimal size — it
-   systematically overbets** (the synthesizing result). For a fixed polarized
-   range, EV peaks near **0.65× pot** while the opponent's action-information is
-   maximized near **1.7× pot**, and the continuing-range condensation grows
-   *monotonically* with size. Information maximization, taken literally, points
-   to larger bets than EV does. → `figures/fig3_betsize_ev_vs_info.png`
+4. **EV(B) decomposes exactly, and the range-collapse term separates out
+   cleanly** (the synthesizing result). The value of betting size B partitions
+   *exactly* into `EV(B) = V_check + V_betfold + V_betcall`. A bigger bet **buys
+   fold equity** (`V_betfold` rises) but the **continuers get tougher**
+   (`V_betcall` falls, going negative past ~1× pot); EV peaks where these
+   balance (~**0.6× pot**). The information statistic (entropy collapse of the
+   continuing range) is a *very good proxy* for the continuing-range term —
+   `corr(entropy_drop, continuing-range toughness) = +0.93` — so range-collapse
+   **is** an identifiable, well-measured term in the sizing balance. But in a
+   2-round game it enters with a **cost** sign (condensing their range leaves the
+   survivors *strong*, which hurts you *when called now*).
+   → `figures/fig5_ev_decomposition.png`
 
-5. **But the two criteria co-move with polarization** (synthesis). As the range
-   polarizes, *both* the EV-optimal and the information-optimal size grow, and
-   the EV ridge migrates toward larger sizes. The clean qualitative rule:
-   **more polarized ⇒ bet bigger**; the information measures predict the
-   *direction* of the EV-optimal size, while a literal information *maximum*
-   overbets. → `figures/fig4_synthesis.png`
+5. **The "collapse pays off" benefit is a later-street term — and the two
+   criteria co-move with polarization.** The romantic effect (cap them now,
+   leverage it by barrelling later) is a *separate* term that is ≈0 here because
+   there is only one shallow street to spend the cap on; this is why a literal
+   information *maximum* overbets relative to EV (info-optimal ~1.7× vs
+   EV-optimal ~0.65×, `fig3`). As the range polarizes, *both* the EV-optimal and
+   the information-optimal size grow and the EV ridge migrates toward larger
+   sizes (`fig4`). Net rule: **more polarized ⇒ bet bigger**; the information
+   measures predict the *direction* of EV-optimal sizing and *proxy* the
+   collapse term well, but whether that term is a net benefit is
+   **depth-dependent**. → `figures/fig3_betsize_ev_vs_info.png`,
+   `figures/fig4_synthesis.png`
 
 ---
 
@@ -166,12 +178,27 @@ both instrumented in `studies.bet_size_sweep`:
 
 For a chosen spot we build a **separate game per single bet size** so that `EV(B)`
 is a clean function of the size, solve each exactly, and compare the EV-optimal
-size to the degradation-optimal sizes. The headline answer (above): **they do not
-coincide — information maximization overbets — but both move toward larger sizes
-as the range polarizes.** Reading (a)'s condensation is *monotone* in size, so it
-has no interior optimum; reading (b)'s MI is single-peaked but peaks larger than
-EV. This is exactly why a literal "maximally degrade" rule overbets: the EV
-optimum trades degradation against the fold-equity it sacrifices.
+size to the degradation-optimal sizes. Reading (a)'s condensation is *monotone* in
+size (no interior optimum); reading (b)'s MI is single-peaked but peaks larger
+than EV — so a literal "maximally degrade" rule overbets.
+
+**The cleaner framing — separate the collapse term, don't argmax it.**
+Range-collapse is not *the* sizing rule; it is *one term* in the sizing balance.
+`studies.bet_size_decomposition` makes that exact:
+
+```
+EV(B)  =  V_check(B)  +  V_betfold(B)  +  V_betcall(B)
+                         └ fold equity   └ value when called (where the collapse lives)
+```
+
+A bigger bet trades rising fold equity against a falling when-called term, and
+the EV optimum is where they balance. We then probe the when-called term with the
+information statistic and find the collapse is **real and tightly proxied**
+(`corr(entropy_drop, continuing-range toughness) = +0.93`) — but in this shallow
+game it scores as a *cost* (tougher continuers now), with the *leverage benefit*
+that would flip its sign living on later streets that the 2-round game does not
+have. So: **the term separates out and is well-measured; its EV payoff is
+depth-dependent.** → `figures/fig5_ev_decomposition.png`
 
 ---
 
@@ -191,6 +218,7 @@ Outputs (committed under `figures/`):
 | `fig1_polarization_ev.png` | measure 1 — EV vs range polarization (1- & 2-round) |
 | `fig2_posterior_collapse.png` | measures 2 & 3 — MI + per-size belief collapse |
 | `fig3_betsize_ev_vs_info.png` | bet-size sweep — EV(B) vs degradation(B) |
+| `fig5_ev_decomposition.png` | exact `EV(B)=V_check+V_betfold+V_betcall`; collapse term vs toughness |
 | `fig4_synthesis.png` | EV landscape over (polarization, size) with optimal ridges |
 
 ---

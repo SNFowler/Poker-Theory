@@ -107,6 +107,28 @@ class ProfileReach:
                 self._compute(child, reach * p)
 
 
+def node_values(game: Game, strategy: Strategy) -> Dict[int, float]:
+    """Expected payoff to player 0 of each subtree under the fixed profile."""
+    cache: Dict[int, float] = {}
+
+    def value(idx: int) -> float:
+        if idx in cache:
+            return cache[idx]
+        node = game.nodes[idx]
+        if isinstance(node, TerminalNode):
+            v = node.payoff
+        elif isinstance(node, ChanceNode):
+            v = sum(prob * value(child) for _l, prob, child in node.branches)
+        else:
+            probs = strategy[node.infoset]
+            v = sum(probs.get(a, 0.0) * value(child) for a, child in node.actions)
+        cache[idx] = v
+        return v
+
+    value(game.root)
+    return cache
+
+
 # ---------------------------------------------------------------------------
 # Decision points
 # ---------------------------------------------------------------------------

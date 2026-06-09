@@ -233,6 +233,68 @@ def betsize_sweep_figure(quick: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
+def betsize_decomposition_figure(quick: bool) -> None:
+    section("EV DECOMPOSITION  ::  separating the range-collapse term from sizing")
+    n = 6
+    pol = rg.polarized_range(n)
+    uni = rg.uniform_range(n)
+    base = GameConfig(ranks=AKQJT9_RANKS, suits=2, ante=1, num_rounds=2,
+                      bet_mode="no-limit", stack=20.0, deal_weights=(pol, uni))
+    fracs = [round(float(x), 3) for x in np.linspace(0.2, 3.0, 15 if quick else 25)]
+    res = st.bet_size_decomposition(base, fracs, bettor=0)
+    B = np.array([r.fraction for r in res])
+    EV = np.array([r.ev_total for r in res])
+    VC = np.array([r.v_check for r in res])
+    VF = np.array([r.v_betfold for r in res])
+    VK = np.array([r.v_betcall for r in res])
+    drop = np.array([r.entropy_drop for r in res])
+    tough = np.array([r.showdown_toughness for r in res])
+    percont = np.array([r.per_continue_value for r in res])
+    ev_opt = max(res, key=lambda r: r.ev_total)
+
+    print("  EV(B) = V_check + V_betfold + V_betcall   (exact additive partition)")
+    print(f"  {'B':>5} {'EV':>8} {'V_check':>9} {'V_betfold':>10} {'V_betcall':>10}"
+          f" {'Hdrop':>7} {'tough':>7}")
+    for r in res:
+        print(f"  {r.fraction:>5.2f} {r.ev_total:>8.4f} {r.v_check:>9.4f}"
+              f" {r.v_betfold:>10.4f} {r.v_betcall:>10.4f}"
+              f" {r.entropy_drop:>7.3f} {r.showdown_toughness:>7.3f}")
+    c1 = float(np.corrcoef(drop, tough)[0, 1])
+    c2 = float(np.corrcoef(drop, percont)[0, 1])
+    print(f"  EV-optimal size = {ev_opt.fraction:.2f}x pot")
+    print(f"  corr(range-collapse [entropy drop], continuing-range toughness) = {c1:+.3f}")
+    print(f"  corr(range-collapse [entropy drop], value-when-called)          = {c2:+.3f}")
+    print("  => the collapse term is real and tightly tracked by the entropy statistic,")
+    print("     but in a 2-round game it scores as a COST (tougher continuers now); the")
+    print("     leverage that would make it a benefit lives on later streets (absent here).")
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
+    ax1.plot(B, EV, "-o", color="k", lw=2, label="EV(B) total")
+    ax1.plot(B, VC, "-", color="tab:gray", label="V_check")
+    ax1.plot(B, VF, "-^", color="tab:green", label="V_betfold (fold equity)")
+    ax1.plot(B, VK, "-s", color="tab:red", label="V_betcall (when called)")
+    ax1.axvline(ev_opt.fraction, color="k", ls="--", alpha=0.5)
+    ax1.axhline(0, color="k", lw=0.6)
+    ax1.set_xlabel("bet size B (fraction of pot)")
+    ax1.set_ylabel("contribution to EV (bettor)")
+    ax1.set_title("Exact partition  EV(B) = V_check + V_betfold + V_betcall")
+    ax1.legend(fontsize=9); ax1.grid(alpha=0.3)
+
+    ax3 = ax2.twinx()
+    l1, = ax2.plot(B, drop, "-D", color="tab:blue", label="range collapse (entropy drop)")
+    l2, = ax3.plot(B, tough, "-s", color="tab:red", label="continuing-range toughness (EV cost)")
+    ax2.set_xlabel("bet size B (fraction of pot)")
+    ax2.set_ylabel("entropy drop (bits)", color="tab:blue")
+    ax3.set_ylabel("vbar_full - vbar_continuing", color="tab:red")
+    ax2.set_title(f"Range collapse tracks continuing-range toughness\n"
+                  f"corr = {c1:+.2f}  (collapse is well-proxied, but scores as cost here)")
+    ax2.legend([l1, l2], [l1.get_label(), l2.get_label()], loc="upper left", fontsize=9)
+    ax2.grid(alpha=0.3)
+    path = os.path.join(FIG_DIR, "fig5_ev_decomposition.png")
+    fig.tight_layout(); fig.savefig(path, dpi=120); plt.close(fig)
+    print(f"  [saved] {path}")
+
+
 def synthesis_figure(quick: bool) -> None:
     section("SYNTHESIS  ::  how EV-optimal and info-optimal sizes move with polarization")
     n = 6
@@ -287,6 +349,7 @@ def main() -> None:
     measures_23_posterior(args.quick)
     measure4_exploitability()
     betsize_sweep_figure(args.quick)
+    betsize_decomposition_figure(args.quick)
     synthesis_figure(args.quick)
 
     section("DONE")

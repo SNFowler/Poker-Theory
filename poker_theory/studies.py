@@ -208,6 +208,159 @@ def bet_size_sweep(
 
 
 # ---------------------------------------------------------------------------
+# Bet-size EV decomposition: separating the range-collapse term
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DecompResult:
+    """Exact additive decomposition of EV(B) for a single bet size B.
+
+    ``ev_total == v_check + v_betfold + v_betcall`` (reach-weighted contributions
+    to the game value, so they sum exactly).  The fold/continue split and the
+    per-continue continuation value isolate where the bet's value comes from.
+    """
+
+    fraction: float
+    label: str
+    ev_total: float
+    v_check: float                 # value contributed by the check line
+    v_betfold: float               # fold equity: bet -> opponent folds
+    v_betcall: float               # value when the bet is called (round-2 outcomes)
+    p_bet: float                   # P(bettor bets)
+    p_fold_given_bet: float
+    p_call_given_bet: float
+    per_continue_value: float      # v_betcall / P(bet & call): EV per called hand
+    vbar_continuing: float         # per-continue value vs the *continuing* range
+    vbar_full: float               # per-continue value vs the *full* range (frozen play)
+    showdown_toughness: float      # vbar_full - vbar_continuing (>0: continuers tougher)
+    prior_entropy: float
+    continuing_entropy: float
+    entropy_drop: float            # how condensed the continuing range is
+    prior_strength: float
+    continuing_strength: float
+
+
+def _partition_ev(game: Game, strategy, bettor: int, bet_label: str):
+    """Reach-weighted EV contributions of the {check, bet-fold, bet-call} lines.
+
+    Returns (values, probs) dicts keyed by the three line tags.
+    """
+    from .game import ChanceNode, PlayerNode, TerminalNode
+    vals = {"check": 0.0, "betfold": 0.0, "betcall": 0.0}
+    probs = {"check": 0.0, "betfold": 0.0, "betcall": 0.0}
+
+    def child_tag(node: PlayerNode, action: str, tag):
+        if tag is None and node.player == bettor:          # bettor's opening
+            return "check" if action != bet_label else "bet_pending"
+        if tag == "bet_pending" and node.player != bettor:  # opponent's reply
+            return "betfold" if action == "f" else "betcall"
+        return tag
+
+    def rec(idx: int, reach: float, tag) -> None:
+        node = game.nodes[idx]
+        if isinstance(node, TerminalNode):
+            if tag in vals:
+                vals[tag] += reach * node.payoff
+                probs[tag] += reach
+            return
+        if isinstance(node, ChanceNode):
+            for _l, prob, child in node.branches:
+                rec(child, reach * prob, tag)
+            return
+        sp = strategy[node.infoset]
+        for action, child in node.actions:
+            p = sp.get(action, 0.0)
+            if p > 0:
+                rec(child, reach * p, child_tag(node, action, tag))
+
+    rec(game.root, 1.0, None)
+    return vals, probs
+
+
+def bet_size_decomposition(
+    base_config: GameConfig, fractions: List[float], bettor: int = 0,
+) -> List[DecompResult]:
+    """Decompose EV(B) into fold equity vs continuation value, and probe whether
+    the bet *degrades* the opponent's continuing range (range-collapse term)."""
+    results: List[DecompResult] = []
+    ranks = base_config.ranks
+    n = len(ranks)
+    idx_of = {r: i for i, r in enumerate(ranks)}
+    opp = 1 - bettor
+
+    for frac in fractions:
+        cfg = _replace(
+            base_config, bet_mode="no-limit", bet_fractions=(frac,),
+            raise_fractions=(), allow_allin=False, max_raises=1,
+        )
+        game = Game(cfg)
+        sol = sf.solve(game)
+        reach = an.ProfileReach(game, sol.strategy)
+        values = an.node_values(game, sol.strategy)
+        ev_total = sol.value if bettor == 0 else -sol.value
+        sgn = 1.0 if bettor == 0 else -1.0  # convert P0-values to bettor-values
+
+        open_dp = _bettor_open_dp(game, bettor)
+        bet_labels = [a for a in open_dp.actions if a not in ("x", "c", "f")]
+        bet_label = bet_labels[0] if bet_labels else None
+        resp_dp = _opponent_response_dp(game, bettor, bet_label) if bet_label else None
+        if resp_dp is None:
+            continue
+
+        vals, probs = _partition_ev(game, sol.strategy, bettor, bet_label)
+        v_check = sgn * vals["check"]
+        v_betfold = sgn * vals["betfold"]
+        v_betcall = sgn * vals["betcall"]
+        p_bet = probs["betfold"] + probs["betcall"]
+        p_fold = probs["betfold"] / p_bet if p_bet > 0 else float("nan")
+        p_call = probs["betcall"] / p_bet if p_bet > 0 else float("nan")
+        per_continue = (v_betcall / probs["betcall"]) if probs["betcall"] > 0 else float("nan")
+
+        # Per-rank continuation value to the bettor, and continuing vs full range.
+        continue_actions = [a for a in resp_dp.actions if a != "f"]
+        v2: Dict[str, float] = {}
+        W: Dict[str, float] = {}
+        callprob: Dict[str, float] = {}
+        for r, infoset in resp_dp.infoset_by_rank.items():
+            num = 0.0
+            wtot = 0.0
+            for ndx in game.infoset_nodes[infoset]:
+                node = game.nodes[ndx]
+                child = dict(node.actions).get("c")
+                if child is None:
+                    continue
+                wn = reach.node_reach.get(ndx, 0.0)
+                num += wn * values[child]
+                wtot += wn
+            v2[r] = (num / wtot) if wtot > 0 else 0.0
+            W[r] = wtot
+            callprob[r] = sum(sol.strategy[infoset].get(a, 0.0) for a in continue_actions)
+
+        cont_den = sum(callprob[r] * W[r] for r in v2)
+        full_den = sum(W[r] for r in v2)
+        vbar_cont = (sgn * sum(callprob[r] * W[r] * v2[r] for r in v2) / cont_den) if cont_den > 0 else float("nan")
+        vbar_full = (sgn * sum(W[r] * v2[r] for r in v2) / full_den) if full_den > 0 else float("nan")
+
+        prior, continuing, _fold = _continuing_range(
+            resp_dp, sol.strategy, reach, tuple(continue_actions)
+        )
+        h_prior = an._entropy(prior)
+        h_cont = an._entropy(continuing)
+        results.append(DecompResult(
+            fraction=frac, label=bet_label, ev_total=ev_total,
+            v_check=v_check, v_betfold=v_betfold, v_betcall=v_betcall,
+            p_bet=p_bet, p_fold_given_bet=p_fold, p_call_given_bet=p_call,
+            per_continue_value=per_continue, vbar_continuing=vbar_cont, vbar_full=vbar_full,
+            showdown_toughness=vbar_full - vbar_cont,
+            prior_entropy=h_prior, continuing_entropy=h_cont, entropy_drop=h_prior - h_cont,
+            prior_strength=_strength_dist_stats(prior, ranks),
+            continuing_strength=_strength_dist_stats(continuing, ranks),
+        ))
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Measure 4 (range reading): exploitability of a restricted/condensed range
 # ---------------------------------------------------------------------------
 

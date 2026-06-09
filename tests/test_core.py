@@ -128,6 +128,17 @@ def test_deal_weights_normalize():
     assert total == pytest.approx(1.0, abs=1e-12)
 
 
+def test_ev_decomposition_is_exact():
+    """EV(B) == V_check + V_betfold + V_betcall, an exact additive partition."""
+    from poker_theory import studies as st
+    base = GameConfig(ranks=AKQJT9_RANKS, suits=2, ante=1, num_rounds=2,
+                      bet_mode="no-limit", stack=20.0)
+    res = st.bet_size_decomposition(base, [0.5, 1.0, 2.0], bettor=0)
+    assert len(res) == 3
+    for r in res:
+        assert r.v_check + r.v_betfold + r.v_betcall == pytest.approx(r.ev_total, abs=1e-9)
+
+
 def test_zero_sum_symmetry_of_value():
     """Solving from both sides agrees (enforced) and value is finite."""
     sol = sf.solve(leduc_game())
