@@ -46,6 +46,16 @@ def polarization_family(n: int, p: float, sigma: float = 0.9) -> Tuple[float, ..
     return _normalize([(1 - p) * c + p * q for c, q in zip(cond, pol)])
 
 
+def condensation_family(n: int, d: float, sigma: float = 0.9) -> Tuple[float, ...]:
+    """Interpolate uniform (``d=0``) -> condensed/middle (``d=1``).
+
+    A knob for *how condensed* a range is, holding mean strength at the centre.
+    """
+    cond = condensed_range(n, sigma)
+    uni = uniform_range(n)
+    return _normalize([(1 - d) * u + d * c for u, c in zip(uni, cond)])
+
+
 def mean_strength(weights: Tuple[float, ...]) -> float:
     """Mean rank *strength* of a range (strength = n-index; index 0 strongest).
 

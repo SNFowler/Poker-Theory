@@ -14,6 +14,30 @@ cross-checks it and scales to finer sizing grids.
 
 ---
 
+## The headline result: the penalty for a condensed range
+
+The clean piece of poker theory this project was really after lives in the
+**clairvoyance game** (`poker_theory/clairvoyance.py`, `scripts/clairvoyance_study.py`),
+not in the full symmetric solve (which averages the effect away). Pit a
+**polarized** bettor (nuts or air, 50/50) against a maximally **condensed**
+defender ("a single card", a pure bluff-catcher):
+
+- the exact solver reproduces the textbook closed form to machine precision:
+  **value to the bettor = `s/(1+s)`**, defender minimum-defence frequency
+  `1/(1+s)`, bluff frequency `s/(1+s)` — where `s` is the bet as a fraction of pot;
+- that value **is the penalty the condensed range pays**, and it **grows
+  monotonically with bet size**, approaching a full ante at all-in. Against a
+  purely condensed range the polar player simply wants to bet as large as
+  possible — **EV-optimal and "maximally exploit their range" sizing coincide**;
+- with real 6-rank ranges, **condensing the defender (at fixed mean strength)
+  strictly raises the extractable penalty** (`+0.10 → +0.54` from uniform to a
+  single card) and pushes the penalty-maximizing size larger.
+
+This also explains the earlier "information-max overbets relative to EV" puzzle:
+that tension only appears because a *symmetric* bettor also holds value hands that
+want to be called. Strip the range to pure polar-vs-condensed and the tension
+vanishes — the penalty and the EV point the same way. → `figures/fig6_clairvoyance.png`
+
 ## TL;DR findings
 
 Using the AKQJT9 game (see below), with the bettor's range mean-strength held
@@ -233,6 +257,7 @@ pip install -r requirements.txt
 python -m pytest -q                  # validation suite
 python scripts/run_studies.py        # full report + figures/  (~20s)
 python scripts/run_studies.py --quick   # coarser grids        (~10s)
+python scripts/clairvoyance_study.py    # the penalty-for-a-condensed-range result
 ```
 
 Outputs (committed under `figures/`):
@@ -244,6 +269,7 @@ Outputs (committed under `figures/`):
 | `fig3_betsize_ev_vs_info.png` | bet-size sweep — EV(B) vs degradation(B) |
 | `fig5_ev_decomposition.png` | exact `EV(B)=V_check+V_betfold+V_betcall`; collapse term vs toughness |
 | `fig4_synthesis.png` | EV landscape over (polarization, size) with optimal ridges |
+| `fig6_clairvoyance.png` | **the penalty for a condensed range**: `s/(1+s)` + penalty surface |
 
 ---
 

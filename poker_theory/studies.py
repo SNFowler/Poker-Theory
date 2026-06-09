@@ -30,7 +30,7 @@ from typing import Dict, List, Optional, Tuple
 from . import analysis as an
 from . import ranges as rg
 from . import sequence_form as sf
-from .game import Game, GameConfig
+from .game import Game, GameConfig, AKQJT9_RANKS
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +409,92 @@ def range_restriction_exploitability(
             ev_lost=v_uniform - v, mean_strength=rg.mean_strength(shape),
         ))
     return out
+
+
+# ---------------------------------------------------------------------------
+# The clairvoyance game: the penalty for a condensed range
+# ---------------------------------------------------------------------------
+
+
+def _bluff_catcher_ranges(ranks: Tuple[str, ...]):
+    """(bettor, defender) deal weights for the pure clairvoyance game.
+
+    Bettor is polarized onto the strongest (nuts) and weakest (air) rank; the
+    defender is a single mid bluff-catcher that beats air and loses to the nuts.
+    """
+    n = len(ranks)
+    bettor = [0.0] * n
+    bettor[0] = 1.0           # nuts (strongest)
+    bettor[-1] = 1.0          # air (weakest)
+    defender = [0.0] * n
+    defender[n // 2] = 1.0    # a single middle card
+    return tuple(bettor), tuple(defender)
+
+
+@dataclass
+class ClairvoyancePoint:
+    bet_fraction: float
+    solver_value: float        # value to the polar bettor = penalty to defender
+    closed_form: float         # s/(1+s)
+    call_frequency: float      # defender's MDF at equilibrium (numeric)
+    bluff_frequency: float     # bettor's air-bet frequency (numeric)
+
+
+def clairvoyance_size_sweep(
+    fractions: List[float], ranks: Tuple[str, ...] = AKQJT9_RANKS,
+    ante: int = 1, stack: float = 100.0,
+) -> List[ClairvoyancePoint]:
+    """Solve the pure clairvoyance game across bet sizes; compare to closed form."""
+    from . import clairvoyance as cl
+    bettor_w, defender_w = _bluff_catcher_ranges(ranks)
+    nuts, air, catcher = ranks[0], ranks[-1], ranks[len(ranks) // 2]
+    out: List[ClairvoyancePoint] = []
+    for s in fractions:
+        cfg = GameConfig(ranks=ranks, suits=2, ante=ante, num_rounds=1,
+                         bet_mode="no-limit", stack=stack, bet_fractions=(s,),
+                         raise_fractions=(), allow_allin=False, max_raises=1,
+                         deal_weights=(bettor_w, defender_w))
+        game = Game(cfg)
+        sol = sf.solve(game)
+        bet_label = f"b{s:g}"
+        call = bluff = float("nan")
+        for h, probs in sol.strategy.items():
+            p, own, comm, hist = an.parse_infoset(h)
+            if p == 1 and own == catcher and hist == bet_label:
+                call = probs.get("c", 0.0)
+            if p == 0 and own == air and hist == "":
+                bluff = probs.get(bet_label, 0.0)
+        eq = cl.clairvoyant_equilibrium(s)
+        out.append(ClairvoyancePoint(
+            bet_fraction=s, solver_value=sol.value, closed_form=eq.value_to_bettor,
+            call_frequency=call, bluff_frequency=bluff,
+        ))
+    return out
+
+
+def condensation_penalty_surface(
+    condensations: List[float], fractions: List[float],
+    ranks: Tuple[str, ...] = AKQJT9_RANKS, ante: int = 1, stack: float = 100.0,
+):
+    """Penalty (value to a polar bettor) over (defender condensation, bet size).
+
+    The bettor holds a fixed *polarized* range; the defender's range is swept from
+    uniform (``d=0``) to fully condensed/middle (``d=1``) at fixed mean strength.
+    Returns a 2-D array ``penalty[i, j]`` for condensation ``i`` and size ``j``.
+    """
+    import numpy as np
+    n = len(ranks)
+    bettor_w = rg.polarized_range(n)
+    penalty = np.zeros((len(condensations), len(fractions)))
+    for i, d in enumerate(condensations):
+        defender_w = rg.condensation_family(n, d)
+        for j, s in enumerate(fractions):
+            cfg = GameConfig(ranks=ranks, suits=2, ante=ante, num_rounds=1,
+                             bet_mode="no-limit", stack=stack, bet_fractions=(s,),
+                             raise_fractions=(), allow_allin=False, max_raises=1,
+                             deal_weights=(bettor_w, defender_w))
+            penalty[i, j] = sf.solve(Game(cfg)).value
+    return penalty
 
 
 # ---------------------------------------------------------------------------

@@ -166,6 +166,27 @@ def test_leduc_is_two_round_special_case():
     assert sf.solve(Game(cfg)).value == pytest.approx(-0.0856064, abs=1e-5)
 
 
+def test_clairvoyance_matches_closed_form():
+    """The exact solver reproduces the clairvoyance theorem value s/(1+s)."""
+    from poker_theory import studies as st
+    from poker_theory import clairvoyance as cl
+    pts = st.clairvoyance_size_sweep([0.25, 0.5, 1.0, 2.0, 5.0])
+    for p in pts:
+        s = p.bet_fraction
+        assert p.solver_value == pytest.approx(s / (1 + s), abs=1e-9)
+        # minimum-defence frequency and bluff frequency
+        eq = cl.clairvoyant_equilibrium(s)
+        assert p.call_frequency == pytest.approx(eq.call_frequency, abs=1e-6)
+        assert p.bluff_frequency == pytest.approx(eq.bluff_frequency, abs=1e-6)
+
+
+def test_condensation_raises_penalty():
+    """A more condensed defender (fixed mean strength) pays a larger penalty."""
+    from poker_theory import studies as st
+    surf = st.condensation_penalty_surface([0.0, 1.0], [0.5, 1.0, 2.0, 3.0])
+    assert surf[1].max() > surf[0].max() + 1e-6   # condensed worse than uniform
+
+
 def test_zero_sum_symmetry_of_value():
     """Solving from both sides agrees (enforced) and value is finite."""
     sol = sf.solve(leduc_game())
