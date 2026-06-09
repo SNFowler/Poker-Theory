@@ -38,6 +38,53 @@ that tension only appears because a *symmetric* bettor also holds value hands th
 want to be called. Strip the range to pure polar-vs-condensed and the tension
 vanishes — the penalty and the EV point the same way. → `figures/fig6_clairvoyance.png`
 
+## The corrected information measure: measure the question, not the range
+
+The brief asked for *an information measure that captures how exploitable the
+shape of a range is*. The four original measures can't, in principle, deliver
+that: they are statistics of the **rank distribution** (entropy, KL), which are
+permutation-invariant — blind to where mass sits in the strength order relative
+to the opponent. "Condensed vs polarized" is a property of the **partition the
+bet's question induces** on the responder's range, which is the structure the
+brief itself named ("a bet is a question that partitions their range").
+
+`analysis.question_value` measures that structure at the response decision point:
+
+- **VoI** — the value of the responder's private card *for answering the
+  question*: EV of the best card-dependent answer minus the best card-blind
+  answer (against the equilibrium opponent). A pure bluff-catcher range has
+  VoI = 0: blind play is already optimal, and the range pays the full rent.
+- **H(answer)** — entropy of the induced answer partition (hands grouped by
+  their optimal action set). *A condensed range is one whose answer alphabet
+  has one letter.*
+- **indifferent mass** — the bluff-catcher mass held at indifference: the mass
+  paying rent.
+
+**The counterexample that kills entropy-as-shape** (exact, from the LP): a
+defender uniform over four middle ranks has **2.0 bits** of range entropy, yet
+VoI = 0, H(answer) = 0, indifferent mass = 1 — and pays **exactly** the
+clairvoyance rent `s/(1+s)`, identical to a single card. Range entropy rates
+this range as healthy; the question measures identify it as maximally condensed.
+
+**The predictor.** Across a 7-shape gallery (mean strength held fixed) × sizes
+plus the full condensation × size surface:
+
+```
+penalty  ≈  max(0,  s/(1+s) · indifferent_mass  −  VoI)
+            └ what the question would extract     └ what the defender's
+              from a card-blind range               card buys back
+```
+
+corr ≈ **+0.95** overall (RMSE ≈ 0.05 chips), while range entropy is incoherent
+across the same data (−0.07 on the gallery, −0.49 combined; it only *appears* to
+work inside a one-parameter family where it co-moves with condensation by
+construction). `rent × indifferent_mass` alone is the **clairvoyance bound** —
+exact for a pure polar question (gallery corr +0.97), an overestimate where the
+bettor has thin-value hands. The clamp at zero is principled: the question is
+optional (a bettor never poses a value-losing one — which is also why a polar
+*defender* simply never gets bet at: the question is worthless against it).
+→ `figures/fig7_question_value.png`, `scripts/question_value_study.py`
+
 ## TL;DR findings
 
 Using the AKQJT9 game (see below), with the bettor's range mean-strength held
@@ -258,6 +305,7 @@ python -m pytest -q                  # validation suite
 python scripts/run_studies.py        # full report + figures/  (~20s)
 python scripts/run_studies.py --quick   # coarser grids        (~10s)
 python scripts/clairvoyance_study.py    # the penalty-for-a-condensed-range result
+python scripts/question_value_study.py  # the corrected measure: question value vs entropy
 ```
 
 Outputs (committed under `figures/`):
@@ -270,6 +318,7 @@ Outputs (committed under `figures/`):
 | `fig5_ev_decomposition.png` | exact `EV(B)=V_check+V_betfold+V_betcall`; collapse term vs toughness |
 | `fig4_synthesis.png` | EV landscape over (polarization, size) with optimal ridges |
 | `fig6_clairvoyance.png` | **the penalty for a condensed range**: `s/(1+s)` + penalty surface |
+| `fig7_question_value.png` | **the corrected measure**: question-value vs range entropy |
 
 ---
 

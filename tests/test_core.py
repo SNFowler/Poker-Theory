@@ -187,6 +187,39 @@ def test_condensation_raises_penalty():
     assert surf[1].max() > surf[0].max() + 1e-6   # condensed worse than uniform
 
 
+def test_question_value_counterexample():
+    """High-entropy bluff-catcher range == single card: entropy can't see shape.
+
+    A defender uniform over four middle ranks has 2 bits of range entropy yet
+    zero value-of-information, a trivial answer partition, full indifferent
+    mass, and pays exactly the clairvoyance rent s/(1+s).
+    """
+    from poker_theory import studies as st
+    qp = st.question_value_point((0, 1, 1, 1, 1, 0), 1.0, label="bc4")
+    assert qp.range_entropy == pytest.approx(2.0, abs=1e-9)
+    assert qp.voi == pytest.approx(0.0, abs=1e-6)
+    assert qp.partition_entropy == pytest.approx(0.0, abs=1e-6)
+    assert qp.indifferent_mass == pytest.approx(1.0, abs=1e-6)
+    assert qp.penalty == pytest.approx(0.5, abs=1e-6)   # s/(1+s) at s=1
+
+
+def test_question_value_uniform_defender():
+    """A spread range has positive VoI and pays less than the full rent."""
+    from poker_theory import studies as st
+    qp = st.question_value_point((1, 1, 1, 1, 1, 1), 1.0, label="uniform")
+    assert qp.voi > 0.01                      # the card matters for the answer
+    assert qp.indifferent_mass < 1.0 - 1e-6   # not everything is a bluff-catcher
+    assert qp.penalty < 0.5 - 1e-3            # pays less than clairvoyance rent
+
+
+def test_question_value_voi_nonnegative():
+    """VoI = v_informed - v_blind is nonnegative by construction."""
+    from poker_theory import studies as st
+    for w in [(1, 1, 1, 1, 1, 1), (0.35, 0.15, 0, 0, 0.15, 0.35)]:
+        qp = st.question_value_point(w, 1.0)
+        assert qp.voi >= -1e-9
+
+
 def test_zero_sum_symmetry_of_value():
     """Solving from both sides agrees (enforced) and value is finite."""
     sol = sf.solve(leduc_game())

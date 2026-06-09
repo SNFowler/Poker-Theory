@@ -179,6 +179,115 @@ def rank_prior(dp: DecisionPoint, reach: ProfileReach) -> Dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
+# The corrected measure: the value of the question a bet poses
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class QuestionValue:
+    """Decision-relevance of the responder's private card at a decision point.
+
+    A bet is a *question* posed to the responder; what makes a range exploitable
+    is not how spread its hand distribution is (Shannon entropy of the range --
+    permutation-invariant, blind to strength order) but how much the responder's
+    private card is worth *for answering the question*:
+
+    * ``voi`` -- the (Howard) value of information of the private card: EV of the
+      best card-dependent answer minus EV of the best card-*independent* answer,
+      both against the fixed equilibrium opponent with equilibrium continuation.
+      A pure bluff-catcher range has ``voi = 0``: blind play is already optimal,
+      and the range pays the full indifference rent.
+    * ``partition_entropy`` -- entropy of the *answer partition* the question
+      induces on the responder's range (hands grouped by their eps-optimal action
+      set).  "A condensed range is one whose answer alphabet has one letter."
+    * ``indifferent_mass`` -- posterior mass of hands with >= 2 eps-optimal
+      actions: the bluff-catcher mass held at indifference, i.e. the mass paying
+      rent.
+
+    All EVs are in chips from the responder's perspective, conditional on the
+    decision point being reached.
+    """
+
+    decision: str
+    prior: Dict[str, float]                     # posterior over responder rank
+    action_values: Dict[str, Dict[str, float]]  # rank -> {action: EV to responder}
+    v_informed: float        # E_r max_a u(r, a)
+    v_blind: float           # max_a E_r u(r, a)
+    voi: float               # v_informed - v_blind  (>= 0)
+    blind_action: str        # the best card-independent answer
+    classes: Dict[str, str]  # rank -> answer-class label (eps-optimal action set)
+    partition_entropy: float # bits
+    indifferent_mass: float
+
+
+def question_value(
+    game: Game, strategy: Strategy, dp: DecisionPoint,
+    reach: Optional[ProfileReach] = None,
+    values: Optional[Dict[int, float]] = None,
+    eps: float = 1e-6,
+) -> QuestionValue:
+    """Compute the question-value measures for the actor at ``dp``.
+
+    ``u(r, a)`` is the responder's expected payoff, conditional on holding rank
+    ``r`` and reaching ``dp``, of answering ``a`` and then playing the
+    equilibrium continuation (both players).  Opponent/chance uncertainty is
+    integrated using the profile reach over the infoset's nodes.
+    """
+    if reach is None:
+        reach = ProfileReach(game, strategy)
+    if values is None:
+        values = node_values(game, strategy)
+    sgn = 1.0 if dp.player == 0 else -1.0
+    prior_all = rank_prior(dp, reach)
+
+    avals: Dict[str, Dict[str, float]] = {}
+    for r, h in dp.infoset_by_rank.items():
+        if prior_all.get(r, 0.0) <= 0.0:
+            continue
+        num = {a: 0.0 for a in dp.actions}
+        den = 0.0
+        for n in game.infoset_nodes[h]:
+            w = reach.node_reach.get(n, 0.0)
+            if w <= 0.0:
+                continue
+            den += w
+            for a, child in game.nodes[n].actions:
+                num[a] += w * values[child]
+        if den <= 0.0:
+            continue
+        avals[r] = {a: sgn * num[a] / den for a in dp.actions}
+
+    mass = sum(prior_all[r] for r in avals)
+    if mass <= 0.0:
+        raise ValueError(f"decision point {dp.label} is unreached under the profile")
+    prior = {r: prior_all[r] / mass for r in avals}
+
+    v_informed = sum(prior[r] * max(avals[r].values()) for r in prior)
+    blind_evs = {a: sum(prior[r] * avals[r][a] for r in prior) for a in dp.actions}
+    blind_action = max(blind_evs, key=blind_evs.get)
+    v_blind = blind_evs[blind_action]
+
+    classes: Dict[str, str] = {}
+    indifferent_mass = 0.0
+    class_mass: Dict[str, float] = {}
+    for r in prior:
+        best = max(avals[r].values())
+        optimal = sorted(a for a in dp.actions if avals[r][a] >= best - eps)
+        label = "/".join(optimal)
+        classes[r] = label
+        class_mass[label] = class_mass.get(label, 0.0) + prior[r]
+        if len(optimal) >= 2:
+            indifferent_mass += prior[r]
+
+    return QuestionValue(
+        decision=dp.label, prior=prior, action_values=avals,
+        v_informed=v_informed, v_blind=v_blind, voi=v_informed - v_blind,
+        blind_action=blind_action, classes=classes,
+        partition_entropy=_entropy(class_mass), indifferent_mass=indifferent_mass,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Measure 2: action <-> strength mutual information
 # ---------------------------------------------------------------------------
 

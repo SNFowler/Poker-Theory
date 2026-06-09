@@ -498,6 +498,140 @@ def condensation_penalty_surface(
 
 
 # ---------------------------------------------------------------------------
+# The corrected measure: question value (VoI / answer partition) vs penalty
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class QuestionPoint:
+    """One (defender shape, bet size) cell of the question-value study."""
+
+    label: str
+    bet_fraction: float
+    penalty: float            # equilibrium value to the polar bettor
+    range_entropy: float      # H(defender deal weights), bits -- the OLD measure
+    partition_entropy: float  # H(answer partition), bits
+    voi: float                # value of the defender's card for the answer, chips
+    indifferent_mass: float   # bluff-catcher mass held at indifference
+    rent: float               # clairvoyance rent scale s/(1+s)
+    predictor: float          # rent * indifferent_mass: the clairvoyance bound
+    # The composite measure: max(0, rent * indifferent_mass - voi).  "What the
+    # question would extract from a blind range, minus what the defender's card
+    # buys back" -- clamped at zero because the question is optional (the bettor
+    # can always check rather than pose a value-losing question).
+    predictor_net: float
+
+
+def question_value_point(
+    defender_weights: Tuple[float, ...], s: float,
+    bettor_weights: Optional[Tuple[float, ...]] = None,
+    ranks: Tuple[str, ...] = AKQJT9_RANKS, ante: int = 1, stack: float = 100.0,
+    label: str = "",
+) -> QuestionPoint:
+    """Solve one single-round game and measure the question the bet poses.
+
+    Default bettor is pure nuts-or-air (mass on the strongest and weakest rank).
+    """
+    n = len(ranks)
+    if bettor_weights is None:
+        bw = [0.0] * n
+        bw[0] = bw[-1] = 1.0
+        bettor_weights = tuple(bw)
+    cfg = GameConfig(ranks=ranks, suits=2, ante=ante, num_rounds=1,
+                     bet_mode="no-limit", stack=stack, bet_fractions=(s,),
+                     raise_fractions=(), allow_allin=False, max_raises=1,
+                     deal_weights=(bettor_weights, tuple(defender_weights)))
+    game = Game(cfg)
+    sol = sf.solve(game)
+    reach = an.ProfileReach(game, sol.strategy)
+    values = an.node_values(game, sol.strategy)
+    dp = _opponent_response_dp(game, bettor=0, bet_label=f"b{s:g}")
+    if dp is None:
+        raise RuntimeError(f"no response decision point for size {s}")
+    rent = s / (1.0 + s)
+    h_range = an._entropy({ranks[i]: w for i, w in enumerate(defender_weights)})
+    try:
+        qv = an.question_value(game, sol.strategy, dp, reach, values)
+    except ValueError:
+        # The bettor never bets at equilibrium: the question is worthless against
+        # this defender and is never posed.  Measures are undefined; the rent
+        # extracted (and hence the predictor) is zero.
+        return QuestionPoint(
+            label=label, bet_fraction=s, penalty=sol.value, range_entropy=h_range,
+            partition_entropy=float("nan"), voi=float("nan"),
+            indifferent_mass=float("nan"), rent=rent, predictor=0.0,
+            predictor_net=0.0,
+        )
+    return QuestionPoint(
+        label=label, bet_fraction=s, penalty=sol.value, range_entropy=h_range,
+        partition_entropy=qv.partition_entropy, voi=qv.voi,
+        indifferent_mass=qv.indifferent_mass, rent=rent,
+        predictor=rent * qv.indifferent_mass,
+        predictor_net=max(0.0, rent * qv.indifferent_mass - qv.voi),
+    )
+
+
+def shape_gallery(n: int = 6) -> Dict[str, Tuple[float, ...]]:
+    """Defender range shapes, all with mean rank-strength fixed at the centre.
+
+    Includes the counterexample to entropy-as-shape: ``mid-4 bluffcatchers`` has
+    2 bits of range entropy yet is strategically identical to a single card.
+    """
+    assert n == 6, "gallery is written for the 6-rank game"
+    return {
+        "uniform": (1, 1, 1, 1, 1, 1),
+        "condensed-mid": rg.condensed_range(n),
+        "mid-4 bluffcatchers": (0, 1, 1, 1, 1, 0),
+        "mid-2 bluffcatchers": (0, 0, 1, 1, 0, 0),
+        "two-point K/T": (0, 1, 0, 0, 1, 0),
+        "semi-polar": (0.35, 0.15, 0, 0, 0.15, 0.35),
+        "polar A/9": (1, 0, 0, 0, 0, 1),
+    }
+
+
+def question_value_gallery(
+    fractions: List[float], ranks: Tuple[str, ...] = AKQJT9_RANKS,
+) -> List[QuestionPoint]:
+    """Evaluate every gallery shape at every bet size (pure polar bettor)."""
+    out: List[QuestionPoint] = []
+    for label, w in shape_gallery(len(ranks)).items():
+        for s in fractions:
+            out.append(question_value_point(w, s, ranks=ranks, label=label))
+    return out
+
+
+def question_value_surface(
+    condensations: List[float], fractions: List[float],
+    ranks: Tuple[str, ...] = AKQJT9_RANKS,
+):
+    """Penalty + question measures over (defender condensation, bet size).
+
+    Same setup as :func:`condensation_penalty_surface` (soft-polarized bettor),
+    but also recording the new measures so the predictor can be tested on the
+    whole surface.  Returns a dict of 2-D arrays keyed by measure name.
+    """
+    import numpy as np
+    n = len(ranks)
+    bettor = rg.polarized_range(n)
+    shape = (len(condensations), len(fractions))
+    grids = {k: np.zeros(shape) for k in
+             ("penalty", "predictor", "predictor_net", "voi",
+              "indifferent_mass", "range_entropy")}
+    for i, d in enumerate(condensations):
+        defender = rg.condensation_family(n, d)
+        for j, s in enumerate(fractions):
+            qp = question_value_point(defender, s, bettor_weights=bettor,
+                                      ranks=ranks, label=f"d={d:g}")
+            grids["penalty"][i, j] = qp.penalty
+            grids["predictor"][i, j] = qp.predictor
+            grids["predictor_net"][i, j] = qp.predictor_net
+            grids["voi"][i, j] = qp.voi
+            grids["indifferent_mass"][i, j] = qp.indifferent_mass
+            grids["range_entropy"][i, j] = qp.range_entropy
+    return grids
+
+
+# ---------------------------------------------------------------------------
 # small helper: dataclasses.replace for a frozen GameConfig
 # ---------------------------------------------------------------------------
 
