@@ -637,6 +637,104 @@ def question_value_surface(
 
 
 # ---------------------------------------------------------------------------
+# Bet-sizing abstraction: how few sizes recover the continuum?
+# ---------------------------------------------------------------------------
+
+
+def sizing_value(
+    sizes: Tuple[float, ...], bettor_weights: Tuple[float, ...],
+    defender_weights: Tuple[float, ...], ranks: Tuple[str, ...] = AKQJT9_RANKS,
+    ante: int = 1, stack: float = 50.0,
+) -> float:
+    """Value to the bettor (P0) when it may check or bet any size in ``sizes``.
+
+    Single street; the defender may only call or fold (so the only sizing
+    dimension in the game is the bettor's menu).  An empty menu means check-only.
+    """
+    common = dict(ranks=ranks, suits=2, ante=ante, num_rounds=1, bet_mode="no-limit",
+                  stack=stack, raise_fractions=(), allow_allin=False,
+                  deal_weights=(bettor_weights, defender_weights),
+                  aggressors=(0,))  # defender is passive: check/call/fold only
+    if not sizes:
+        cfg = GameConfig(bet_fractions=(1.0,), max_raises=0, **common)
+    else:
+        cfg = GameConfig(bet_fractions=tuple(sorted(set(sizes))), max_raises=1, **common)
+    return sf.solve(Game(cfg)).value
+
+
+@dataclass
+class AbstractionCurve:
+    grid: List[float]
+    v_check: float
+    v_full: float
+    # method -> list over k of (chosen sizes, value, capture fraction)
+    chosen: Dict[str, List[Tuple[List[float], float, float]]]
+
+
+def _capture(v: float, v_check: float, v_full: float) -> float:
+    denom = v_full - v_check
+    return 0.0 if abs(denom) < 1e-12 else (v - v_check) / denom
+
+
+def greedy_sizes(
+    grid: List[float], bettor_weights: Tuple[float, ...],
+    defender_weights: Tuple[float, ...], k_max: int = 6, **kw,
+) -> List[Tuple[List[float], float]]:
+    """Forward-selection benchmark: repeatedly add the size that helps EV most."""
+    chosen: List[float] = []
+    out: List[Tuple[List[float], float]] = []
+    remaining = list(grid)
+    for _ in range(k_max):
+        best_size, best_val = None, -1e18
+        for s in remaining:
+            v = sizing_value(tuple(chosen + [s]), bettor_weights, defender_weights, **kw)
+            if v > best_val:
+                best_val, best_size = v, s
+        chosen = sorted(chosen + [best_size])
+        remaining.remove(best_size)
+        out.append((list(chosen), best_val))
+    return out
+
+
+def geometric_sizes(grid: List[float], k: int) -> List[float]:
+    """k sizes geometrically spaced across the grid range (the folklore rule)."""
+    import numpy as np
+    lo, hi = grid[0], grid[-1]
+    targets = np.geomspace(lo, hi, k)
+    return sorted({min(grid, key=lambda g: abs(g - t)) for t in targets})
+
+
+def linear_sizes(grid: List[float], k: int) -> List[float]:
+    import numpy as np
+    targets = np.linspace(grid[0], grid[-1], k)
+    return sorted({min(grid, key=lambda g: abs(g - t)) for t in targets})
+
+
+def sizing_abstraction_curve(
+    bettor_weights: Tuple[float, ...], defender_weights: Tuple[float, ...],
+    grid: Optional[List[float]] = None, k_max: int = 6, **kw,
+) -> AbstractionCurve:
+    """Compare greedy-optimal vs geometric vs linear size menus against the grid."""
+    import numpy as np
+    if grid is None:
+        grid = [round(float(x), 3) for x in np.geomspace(0.1, 15.0, 24)]
+    v_check = sizing_value((), bettor_weights, defender_weights, **kw)
+    v_full = sizing_value(tuple(grid), bettor_weights, defender_weights, **kw)
+
+    chosen: Dict[str, List[Tuple[List[float], float, float]]] = {}
+    greedy = greedy_sizes(grid, bettor_weights, defender_weights, k_max, **kw)
+    chosen["greedy"] = [(s, v, _capture(v, v_check, v_full)) for s, v in greedy]
+    for name, fn in (("geometric", geometric_sizes), ("linear", linear_sizes)):
+        rows = []
+        for k in range(1, k_max + 1):
+            sizes = fn(grid, k)
+            v = sizing_value(tuple(sizes), bettor_weights, defender_weights, **kw)
+            rows.append((sizes, v, _capture(v, v_check, v_full)))
+        chosen[name] = rows
+    return AbstractionCurve(grid=grid, v_check=v_check, v_full=v_full, chosen=chosen)
+
+
+# ---------------------------------------------------------------------------
 # small helper: dataclasses.replace for a frozen GameConfig
 # ---------------------------------------------------------------------------
 

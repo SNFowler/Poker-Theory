@@ -109,6 +109,36 @@ Is any of this *new* poker math? Honestly, no — and the stress test
   between call and raise, both winning). The predictor is a bluff-catcher-regime
   artifact, as flagged when it was introduced.
 
+## The practical payoff: bet-sizing abstraction
+
+The actual goal behind the project: a GTO solver could use a *continuum* of bet
+sizes (value `V*`), but you can only afford **k** discrete sizes — how few
+recover almost all of `V*`, and can a cheap heuristic pick them? Measured exactly
+on a one-sided single-street game (`scripts/sizing_abstraction.py`,
+`studies.sizing_abstraction_curve`): the bettor holds a range and may check or
+bet any size in its menu; the defender is *passive* (call/fold only, via the new
+`aggressors` config), so the only sizing dimension is the bettor's menu and there
+is no out-of-position confound. The "continuum" is a fine geometric grid;
+*capture %* normalises value between check-only (0%) and the full grid (100%).
+
+- **Steep diminishing returns.** One good size recovers ~85–90%; **two
+  well-chosen sizes recover 98–100%**; three hit 100%. Greedy forward-selection
+  matches exhaustive optimal at k ≤ 2 (validated in the script).
+- **The optimal small menu is {small, ~pot}** — a polarising big size plus a thin
+  small one. Over-bets are essentially never needed against these ranges, which
+  is why naive geometric/linear spacing across the whole size axis is a poor
+  heuristic (it squanders sizes on unused over-bets).
+- **A fixed `{0.33, 1.0}` menu is robust** — ≈98% capture on uniform/polarized/
+  linear ranges with *zero* range knowledge (the condensed range is the outlier
+  at ~85%, and its total betting value is tiny to begin with). So the cheap
+  heuristic — *include a small and a pot-sized size* — does nearly as well as the
+  expensive greedy-optimal set. → `figures/fig8_sizing_abstraction.png`
+
+*Scope:* this is the self-EV gap with a passive defender (one sizing dimension,
+no abstraction-translation). The fully rigorous metric — both players abstracted,
+exploitability measured in the fine-grid game with a translation rule for
+off-menu sizes — is the natural next step.
+
 ## TL;DR findings
 
 Using the AKQJT9 game (see below), with the bettor's range mean-strength held
@@ -330,6 +360,7 @@ python scripts/run_studies.py        # full report + figures/  (~20s)
 python scripts/run_studies.py --quick   # coarser grids        (~10s)
 python scripts/clairvoyance_study.py    # the penalty-for-a-condensed-range result
 python scripts/question_value_study.py  # the corrected measure: question value vs entropy
+python scripts/sizing_abstraction.py    # how few bet sizes recover the GTO continuum
 ```
 
 Outputs (committed under `figures/`):
@@ -343,6 +374,7 @@ Outputs (committed under `figures/`):
 | `fig4_synthesis.png` | EV landscape over (polarization, size) with optimal ridges |
 | `fig6_clairvoyance.png` | **the penalty for a condensed range**: `s/(1+s)` + penalty surface |
 | `fig7_question_value.png` | **the corrected measure**: question-value vs range entropy |
+| `fig8_sizing_abstraction.png` | **bet-sizing abstraction**: how few sizes recover the continuum |
 
 ---
 

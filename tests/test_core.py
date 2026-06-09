@@ -235,6 +235,38 @@ def test_bluffcatcher_cannot_escape_rent_with_raises():
         assert qp.partition_entropy == pytest.approx(0.0, abs=1e-6)
 
 
+def test_sizing_abstraction_two_sizes_recover_continuum():
+    """Two greedy-optimal bet sizes recover ~all of the continuum's value.
+
+    One-sided single-street game (passive defender); capture is normalised
+    between check-only (0) and a fine grid (1).  Monotone and >= ~0.97 at k=2.
+    """
+    from poker_theory import studies as st
+    from poker_theory import ranges as rg
+    grid = [round(0.1 * (1.4 ** i), 3) for i in range(12)]   # ~0.1 .. 4.4
+    bettor = rg.uniform_range(6)
+    defender = rg.uniform_range(6)
+    curve = st.sizing_abstraction_curve(bettor, defender, grid=grid, k_max=3)
+    caps = [row[2] for row in curve.chosen["greedy"]]
+    assert caps[0] <= caps[1] + 1e-9 <= caps[2] + 1e-9   # monotone non-decreasing
+    assert caps[1] >= 0.97                                 # 2 sizes ~ continuum
+    # a passive-defender sizing menu never beats the full grid or undercuts check
+    assert curve.v_full >= curve.v_check - 1e-9
+
+
+def test_passive_player_cannot_bet():
+    """A non-aggressor player has no bet/raise actions anywhere in the tree."""
+    from poker_theory.game import Game, GameConfig, AKQJT9_RANKS
+    cfg = GameConfig(ranks=AKQJT9_RANKS, num_rounds=1, bet_mode="no-limit",
+                     stack=20.0, bet_fractions=(1.0,), raise_fractions=(),
+                     max_raises=1, aggressors=(0,))
+    g = Game(cfg)
+    for infoset, player in g.infoset_player.items():
+        if player == 1:
+            acts = g.infoset_actions[infoset]
+            assert all(a in ("x", "c", "f") for a in acts), (infoset, acts)
+
+
 def test_zero_sum_symmetry_of_value():
     """Solving from both sides agrees (enforced) and value is finite."""
     sol = sf.solve(leduc_game())

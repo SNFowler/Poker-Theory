@@ -100,6 +100,11 @@ class GameConfig:
     # range (condensed vs polarized) affects equilibrium EV.
     deal_weights: Optional[Tuple[Tuple[float, ...], Tuple[float, ...]]] = None
 
+    # Players permitted to bet/raise (initiate aggression).  ``None`` = both.
+    # Setting ``(0,)`` makes player 1 *passive* (check/call/fold only), which
+    # isolates a one-sided bet-sizing game with no out-of-position confound.
+    aggressors: Optional[Tuple[int, ...]] = None
+
     def __post_init__(self) -> None:
         if self.bet_mode not in ("fixed-limit", "no-limit"):
             raise ValueError(f"unknown bet_mode {self.bet_mode!r}")
@@ -297,6 +302,8 @@ class Game:
         cfg = self.config
         opp = 1 - to_act
         out: List[Tuple[str, float]] = []
+        if cfg.aggressors is not None and to_act not in cfg.aggressors:
+            return out  # this player may not bet or raise (passive)
         if cfg.bet_mode == "fixed-limit":
             inc = cfg.fixed_bets[round_idx]
             target = committed[opp] + inc  # match opponent then add increment
