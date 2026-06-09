@@ -168,6 +168,34 @@ So the earlier `{0.33, 1.0}` "robustness" was an offense-only statement: under
 exploitability it does **not** survive with nearest translation, but it largely
 recovers once you add the cap and translate pseudo-harmonically.
 
+## Does narrowing a GTO range pay later? (the multi-street test)
+
+The optionality thesis — a bet narrows the opponent's range, destroys its
+optionality, and that loss is cashed on a later street — tested directly in a
+2-street game with per-street bet menus (`scripts/multistreet_optionality.py`).
+Two links hold and the third fails, and the failure is the lesson:
+
+- **Narrowing is real** — a bigger street-1 bet condenses the continuing range
+  (1−H/Hmax rises monotonically).
+- **Optionality collapses** — the defender's street-2 card value-of-information
+  per chip falls sharply.
+- **But the bettor's street-2 extraction does *not* rise** — it is flat/slightly
+  falling, and VoI and extraction are *positively* correlated (+0.67).
+
+Why: a GTO defender narrows from **below** — it folds its weak hands and keeps
+its strong ones, so the continuing range gets *stronger* (mean strength and
+condensation correlate at +0.97). The opponent controls which hands continue and
+keeps the range defensible; you can measure the optionality collapse but you
+cannot bank it. **Betting cannot force a GTO range into an exploitable shape.**
+
+This finally reconciles the whole arc: the condensed-range penalty
+(clairvoyance, measure 4) is real only when the shape is **imposed** — the
+opponent is *dealt* or *constrained* to it. When the opponent chooses its own
+continuing range, it chooses a good one. The recurring lesson, one more time:
+value comes from the opponent being *constrained*, not from information per se —
+and against a *fixed, non-GTO* opponent that narrows itself badly, the optionality
+intuition applies in full. → `figures/fig10_multistreet_optionality.png`
+
 ## TL;DR findings
 
 Using the AKQJT9 game (see below), with the bettor's range mean-strength held
@@ -391,6 +419,7 @@ python scripts/clairvoyance_study.py    # the penalty-for-a-condensed-range resu
 python scripts/question_value_study.py  # the corrected measure: question value vs entropy
 python scripts/sizing_abstraction.py    # how few bet sizes recover the GTO continuum
 python scripts/abstraction_exploitability.py  # exploitability + translation rules
+python scripts/multistreet_optionality.py     # does narrowing a GTO range pay on a later street?
 ```
 
 Outputs (committed under `figures/`):
@@ -406,6 +435,7 @@ Outputs (committed under `figures/`):
 | `fig7_question_value.png` | **the corrected measure**: question-value vs range entropy |
 | `fig8_sizing_abstraction.png` | **bet-sizing abstraction**: how few sizes recover the continuum |
 | `fig9_abstraction_exploitability.png` | **exploitability** of a bucket menu; translation; offense/defense asymmetry |
+| `fig10_multistreet_optionality.png` | **multi-street**: narrowing a GTO range drops VoI but does not pay |
 
 ---
 

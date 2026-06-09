@@ -304,6 +304,49 @@ def test_translate_rules():
     assert all(0.0 <= w <= 1.0 for w in ph.values())
 
 
+def test_per_round_bet_menus():
+    """Per-round bet menus offer different sizes on different streets."""
+    from poker_theory.game import Game, GameConfig, AKQJT9_RANKS
+    cfg = GameConfig(ranks=AKQJT9_RANKS, num_rounds=2, bet_mode="no-limit",
+                     stack=50.0, aggressors=(0,), raise_fractions=(), max_raises=1,
+                     bet_fractions_by_round=((0.5,), (2.0,)), bet_fractions=(1.0,))
+    g = Game(cfg)
+    labels = set()
+    for infoset, player in g.infoset_player.items():
+        if player == 0:
+            labels.update(a for a in g.infoset_actions[infoset] if a.startswith("b"))
+    assert "b0.5" in labels and "b2" in labels and "b1" not in labels
+
+
+def test_endogenous_narrowing_caps_from_below():
+    """A passive defender's continuing range narrows AND strengthens with bet size.
+
+    Endogenous narrowing keeps the strong hands (caps from below), so the
+    continuing range gets stronger -- it is not bet into an exploitable shape.
+    """
+    from poker_theory.game import Game, GameConfig, AKQJT9_RANKS
+    from poker_theory import sequence_form as sf, analysis as an, ranges as rg
+
+    def continuing_strength(s1):
+        cfg = GameConfig(ranks=AKQJT9_RANKS, suits=2, ante=1, num_rounds=1,
+                         bet_mode="no-limit", stack=50.0, bet_fractions=(s1,),
+                         raise_fractions=(), allow_allin=False, max_raises=1,
+                         aggressors=(0,),
+                         deal_weights=(rg.uniform_range(6), rg.uniform_range(6)))
+        g = Game(cfg)
+        sol = sf.solve(g)
+        reach = an.ProfileReach(g, sol.strategy)
+        d = next(x for x in an.decision_points(g)
+                 if x.player == 1 and x.history == f"b{s1:g}" and x.community == "-")
+        prior = an.rank_prior(d, reach)
+        cont = {r: prior[r] * sol.strategy[d.infoset_by_rank[r]].get("c", 0.0) for r in prior}
+        tot = sum(cont.values())
+        cont = {r: v / tot for r, v in cont.items()}
+        return sum(cont[r] * (6 - AKQJT9_RANKS.index(r)) for r in cont)
+
+    assert continuing_strength(2.0) > continuing_strength(0.25) + 0.2
+
+
 def test_zero_sum_symmetry_of_value():
     """Solving from both sides agrees (enforced) and value is finite."""
     sol = sf.solve(leduc_game())

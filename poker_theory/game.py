@@ -95,6 +95,11 @@ class GameConfig:
     raise_fractions: Tuple[float, ...] = (1.0,)
     allow_allin: bool = True
 
+    # Optional per-round bet menus (overrides ``bet_fractions`` when set): one
+    # tuple of fractions per betting round.  Lets a study fix the street-1 size
+    # and the street-2 size independently.
+    bet_fractions_by_round: Optional[Tuple[Tuple[float, ...], ...]] = None
+
     # Optional per-player *range* weighting over ranks (aligned to ``ranks``).
     # ``None`` means a uniform deal.  Used to study how the *shape* of a player's
     # range (condensed vs polarized) affects equilibrium EV.
@@ -315,7 +320,13 @@ class Game:
         stack = cfg.stack
         call_to = committed[opp]                 # amount needed to match
         pot_if_called = committed[0] + committed[1] + (call_to - committed[to_act])
-        fractions = cfg.raise_fractions if is_raise else cfg.bet_fractions
+        if is_raise:
+            fractions = cfg.raise_fractions
+        elif cfg.bet_fractions_by_round is not None:
+            by_round = cfg.bet_fractions_by_round
+            fractions = by_round[min(round_idx, len(by_round) - 1)]
+        else:
+            fractions = cfg.bet_fractions
         candidates: List[Tuple[str, float]] = []
         for frac in fractions:
             extra = frac * pot_if_called
